@@ -1,0 +1,71 @@
+1.Jib is an open-source Java containerizer from Google.It doesn't require to write a Dockerfile or docker installed,and it's directly integrated into Maven and Gradle plugin.
+
+2.Add the Jib maven plugin configuration to the <build><plugins> section of pom.xml.
+
+<plugin>
+   <groupId>com.google.cloud.tools</groupId>
+   <artifactId>jib-maven-plugin</artifactId>
+   <version>0.9.6</version>
+   <configuration>
+      <to>
+         <image>spring-hello</image>
+      </to>
+   </configuration>
+</plugin>
+
+
+3.We can use Jib to automatically push our images to container registry(Docker Hub).We need to tag our container image with the Docker repository path.
+<plugin>
+   <groupId>com.google.cloud.tools</groupId>
+   <artifactId>jib-maven-plugin</artifactId>
+   <version>0.9.6</version>
+   <configuration>
+      <to>
+		 <image>registry.hub.docker.com/radiant/spring-hello:${project.version}</image>
+		 <credHelper>pass</credHelper>
+	  <tags>
+          <tag>latest</tag>
+      </tags>
+      </to>
+   </configuration>
+</plugin>
+
+Note: Here radiant is the docker repository name and spring-hello is the artifactId.
+
+4.Jib will need Docker Hub credentials to be able to push images. 
+a)add Docker Hub credentials to maven settings.xml. 
+    <server>
+      <id>registry.hub.docker.com</id>
+      <username>radiant</username>
+      <password>{PASSWORD}</password>
+    </server>
+ 
+You can put plaintext password in settings.xml,you should encrypt password using maven password encryption process.
+
+Follow the below steps to secure and encrypt password in settings.xml.
+
+1)Create a master password
+
+mvn --encrypt-master-password <password>
+will get the encrypted password like this
+{jSMOWnoPFgsHVpMvz5VrIt5kRbzGpI8u+9EF1iFQyJQ=}
+
+2)Add the master password to settings-security.xml
+<settingsSecurity>
+      <master>{jSMOWnoPFgsHVpMvz5VrIt5kRbzGpI8u+9EF1iFQyJQ=}</master>
+</settingsSecurity>
+
+3)Encrypt given password in settings.xml
+mvn --encrypt-password <password>
+{COQLCE6DU6GtcS5P=}
+
+4)Add the encrypted password in the settings.xml
+<server>
+      <id>registry.hub.docker.com</id>
+      <username>radiant</username>
+      <password>{COQLCE6DU6GtcS5P=}</password>
+    </server>
+
+5.Now if we run mvn compile jib:build cmd our image will be build,tagged,and automatically uploaded to the Docker Hub.
+
+
