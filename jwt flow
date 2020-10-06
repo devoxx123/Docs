@@ -1,0 +1,101 @@
+1) Implement one Rest service and test it as a individual service.
+  a) Need to Use rxjava2-jdbc driver to connect to MySql database in Reactive approch.
+  
+2) Implement Eureka service Registry.
+    a) EurekaApplication.java
+     Use @EnableEurekaServer annotation to make it as a Service Registry.
+    b) We need to add below configuration in yml file for registering individual rest services with Service Registry.
+
+        eureka:
+          server:
+            enableSelfPreservation: false
+          instance:
+            hostname: localhost
+          client:
+            registerWithEureka: false
+            fetchRegistry: false
+            serviceUrl:
+              defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/             
+
+ 
+
+3) Individual Rest service uses Eureka client to register with Service Registry.
+    a) UserApplication.java (Spring boot application)
+     use @EnableDiscoveryClient annotation for self registration Eureka registry.
+    b) application.yml
+
+     eureka:
+         client:
+           service-url:
+             defaultZone: http://${THE_HOST}:8761/eureka/
+
+4) Implement API Gateway service and that is a single entry point into the system.
+    a) GatewayApplication.java
+    use @EnableZuulProxy annotaion to make it as a gateway.
+    b) we need to configure routing information for each rest service in application.yml.
+
+	zuul:
+         ignoredServices: '*'
+         routes:
+           user:
+             path: /user/**
+             serviceId: user-service
+             url: "http://54.145.70.34:2222/"
+             stripPrefix: false
+
+               
+5)How do JSON Web Tokens works
+a) Client makes a request to the authentication server containing user login information.
+b) Authorization server authenticates the client,validates the authorization grant and issues the access token and refresh token to the client.
+c) Client requests the resource server for protected resource by giving the access token.
+d) Resource server validates the access token and provides the protected resource.
+e) Every request to a restricted resource,the client sends the access token in the Authorization header using the Bearer schema.
+f) Access token expires,the client authenticates with the authorization server and requests for new access token by providing refresh token.
+g) Access token is invalid, the resource server sends back the invalid token error response to the client.
+
+
+Authorization server code
+--------------------------
+	public void configure(ClientDetailsServiceConfigurer configurer) throws Exception {
+		configurer.inMemory().withClient("sciits-client").secret(passwordEncoder.encode("sciits-secret"))
+		.authorizedGrantTypes("password", "refresh_token").scopes(""read", "write")
+		.accessTokenValiditySeconds("900")//15 mins
+		.refreshTokenValiditySeconds("86400"); //24 hours
+	}
+
+Resource server code
+---------------------
+	public void configure(HttpSecurity http) throws Exception {
+		http.requestMatchers().and().authorizeRequests()
+		.antMatchers("/*.html", "/*.css", "/*.js", "/actuator/**", "/auth/**").permitAll().anyRequest()
+		.authenticated();
+		http.formLogin().loginPage("/user/login").failureUrl("/login?error=true").usernameParameter("username")
+				.passwordParameter("password").and().logout().logoutRequestMatcher(new AntPathRequestMatcher("/logout"))
+				.logoutSuccessUrl("/").and().exceptionHandling().accessDeniedPage("/access-denied");
+	} 
+	
+6)Access Token vs Refresh Token
+a) Access token is a string representing an authorization issued to the client. 
+   JWT tokens represent specific scopes and duration of access,granted by the resource owner.
+   The responsibility of access token is to access data before it gets expired.
+b) Refresh token is issued along with access token to the client by the authorization server is used to obtain a new access token when the current access token becomes invalid or expires.
+
+example of access token
+
+Authentication: Bearer eyJpc3MiOiAiM01WRzk5T3hUeUVNQ1EzZ05wMlBqa3FlWkt4bm1BaUcxeFY0b0hoOUFLTF9yU0suQm9TVlBHWkhRdWtYblZqelJnU3VRcUduNzVOTDd5ZmtRY3l5NyIsICJwcm4iOiAibXlAZW1haWwu
+Y29tIiwgImF1ZCI6ICJodHRwczovL2xvZ2luLnNhbGVzZm9yY2UuY29tIiwgImV4cCI6ICIxMzMzNjg1NjI4In0=
+
+
+
+
+
+
+1.client makes a request to the authentication server containing user login information.
+2.Authentication server validates the username and password combination and creates a JWT token with a payload containing the user technical identifier and an expiration timestamp.
+3.On every request to a restricted resource,the client sends the access token in the Authorization header using the Bearer schema.
+ Authorization: Bearer <token>
+4.The Resource server then validates the token and, if it’s valid, returns the secure resource to the client.
+
+
+
+
