@@ -1,0 +1,269 @@
+Microservice-JWT-APIGateway
+----------------------------
+Introduction
+------------
+API Gateway for providing secured access to Microservices.The API Gateway use JSON Web Token(JWT) for access the REST API's by different Microservices.
+
+What is JSON Web Token?
+--------------------
+JWT is an open standard(RFC 7519)that defines compact and self-contained way for securely transmitting information between parties as a JSON object. 
+JWT can be signed using a secret with the HMAC algorithm or public/private key pair using RSA.
+
+
+When should you use JSON Web Tokens
+-------------------------------------
+Authorization:User is logged in,each subsequent request will include the JWT,allowing the access routes,services,and resources that are permitted with that token.
+Single Sign On is a feature that widely uses JWT nowadays.
+Information Exchange:JSON Web Tokens are a good way of securely transmitting information between parties.
+
+What is the JSON Web Token structure
+-------------------------------------
+The JSON Web Token is composed of 3 parts: header, payload and signature; each separated by a dot as mentioned in below format
+header.payload.signature
+
+Header
+------
+Header typically consists of two parts:
+Type of Token 
+Hashing algorithm being used.such as HMAC SHA256 or RSA.
+
+example
+-------
+{
+  "alg": "HS256",
+  "typ": "JWT"
+}
+
+Payload
+-------
+Payload contains the claims,the data stored inside the JWT.Claims are information about an entity and additional data.
+
+example
+-------
+{
+ "sub": "1234567890",
+ "name": "Radiant",
+ "role": "ADMIN",
+ "iss": http://radiant.com
+ "iat": 1572033308,
+ "exp": 1572034208
+}
+
+Signature
+---------
+Signature is created by signing the encoded header and encoded payload with a secret key using the algorithm specified in the header.
+
+example
+-------
+HMACSHA256(  
+base64UrlEncode(header) + "." +
+base64UrlEncode(payload),  secret)
+
+How do JSON Web Tokens work?
+------------------------------
+When the user successfully logs in using username/password, a JSON Web Token will be returned.
+User will send this JWT token in the Authorization header of all the requests to access any protected RESTful API's.
+User will check for a valid JWT in the Authorization header, and if its present,the user will be allowed to access protected RESTful API's.
+User tries to access a protected resource without a valid JWT token it will throw an 401 unauthorized error.
+Authorization: Bearer <token>
+
+Advantages of JWTs 
+------------------
+No Session to Manage(stateless)
+Cross-Origin Resource Sharing(CORS)
+No need for CSRF protection
+Better integration with mobile
+Portable
+
+
+Implementing Auth Service Microservice
+--------------------------------------
+Auth Service will create the sign-up,sign-in and change password functionalities.
+
+Auth Service will provide the Authorization Server and Resource Server classes.
+
+Authorization Server Configuration
+--------------------------------------
+creating Authorization server consists of basic steps:
+1)Enable @EnableAuthorizationServer annotation and extend the class AuthorizationServerConfigurerAdapter.
+
+2)Authorization Server Configuration applied here are related to:
+a)Client access using ClientDetailsServiceConfigurer
+   -->Selection of use an in-memory or JDBC based storage for client details with inMemory or jdbc methods.
+   -->Client basic authentication using clientId and clientSecret encoded with the choseen PasswordEncoder bean attributes.
+   -->Validity time for access and refresh tokens using accessTokenValiditySeconds and refreshTokenValiditySeconds attributes.
+   -->Grant types allowed using authorizedGrantTypes attribute.
+   -->Defines access scopes with scopes method and Identify client’s accessible resources.
+   
+   @Override
+	public void configure(ClientDetailsServiceConfigurer configurer) throws Exception {
+		configurer.inMemory().withClient("sciits-client").secret(passwordEncoder.encode("sciits-secret"))
+		.authorizedGrantTypes("password","refresh_token").scopes("read","write")
+		.accessTokenValiditySeconds("60*60*12");//12 hours
+		.refreshTokenValiditySeconds("60*60*24*30");//30 days
+	}	 
+   
+b)Authorization server endpoint using AuthorizationServerEndpointsConfigurer
+   -->Define the use of JWT token with accessTokenConverter.
+   -->Define the UserDetailsService and AuthenticationManager interfaces to perform authentication.
+   -->AuthenticationManager is checks the username/password from the database provied by UserDetailsService.
+      If Authentication is successful return true or else throw invalid user exception.
+   -->UserDetailsService interface in order to provide the authentication like username/email and password and roles.
+   -->UserDetailsService interface provide the implementation for loadUserByUsername() method.
+   -->loadUserByUsername() method locates the user by the username. 
+      Spring internally uses the returned UserDetails object to verify the password and roles.
+	  
+	@Override
+	@Transactional(readOnly = true)
+	public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+		User user = userRepository.findByUsername(username);
+		System.out.println("Username" + user.getUsername());
+		if (user == null) {
+			throw new UsernameNotFoundException("User not found");
+		}
+		return new org.springframework.security.core.userdetails.User(user.getUsername(), user.getPassword(),
+				getGrantedAuthorities(user));
+	}
+	private List<GrantedAuthority> getGrantedAuthorities(User user) {
+		List<GrantedAuthority> authorities = new ArrayList<GrantedAuthority>();
+		authorities.add(new SimpleGrantedAuthority(user.getRoles().getRoleDesc()));
+		return authorities;
+	}
+   
+   
+   @Bean
+	public JwtAccessTokenConverter accessTokenConverter() {
+		JwtAccessTokenConverter converter = new JwtAccessTokenConverter();
+		converter.setSigningKey("MaYzkSjmkzPC57L");
+		return converter;
+	}
+	@Autowired
+	public AuthenticationManager authenticationManager;
+	
+	@Autowired
+	private UserDetailsService userDetailsService;
+   
+   @Override
+	public void configure(AuthorizationServerEndpointsConfigurer configurer) throws Exception {
+		configurer.tokenStore(tokenStore()).accessTokenConverter(accessTokenConverter()).tokenEnhancer(enhancerChain);
+		configurer.authenticationManager(authenticationManager);
+		configurer.userDetailsService(userDetailsService);		
+	}
+
+3)Adding the below dependencies in pom.xml file
+<dependency>
+			<groupId>org.springframework.security.oauth</groupId>
+			<artifactId>spring-security-oauth2</artifactId>
+			<version>2.1.0.RELEASE</version>
+</dependency>
+<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-jwt</artifactId>
+			<version>1.0.7.RELEASE</version>
+</dependency>
+
+ 
+
+Resource Server Configuration
+---------------------------------
+The resource server will be getting requests from applications with an HTTP Authorization header containing an access token.
+If there is no access token in the request,then the resource server must reply with an HTTP 401 Unauthorized.
+creating Resource server consists of basic steps:
+1)enable @EnableResourceServer annotation and extend the class ResourceServerConfigurerAdapter.
+
+2)@Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.cors().and().csrf().disable()                                       
+        .authorizeRequests()
+        .antMatchers("/auth/oauth/token","/auth/user/signup").permitAll()
+        .anyRequest().authenticated()
+		}
+
+Above configuration permitted for public access endpoint starting from /auth.All other endpoints are enabled protection otherwise 401 Unauthorized.
+Note: /oauth/token,/oauth/check_token and /oauth/authorize endpoints are by default generated TokenEndpoint class.
+
+ 
+
+Implementing API Gateway using JWT 
+----------------------------------
+
+The API Gateway is implemented as a Microservice using Spring Cloud Zuul Proxy & Spring Security APIs. 
+It handles centralized authentication & routing client requests to various Microservices using the Eureka service registry. 
+It acts as a proxy to the clients to the Microservices architecture & must be highly available as it works as a single point of interaction for different operations be it user signup, user credentials authentication, generating & verifying JWT tokens & handling the client business requests by communicating to relevant Microservice endpoints.
+
+
+Authentication mechanism(JWT) can also be hosted as a separate by Auth Service Microservice.
+The API Gateway can just work as a lightweight request router and communicate with it for Auth Service via the JWT tokens.
+
+Below is the configuration for the API Gateway pom.xml file.
+
+<dependency>
+         <groupId>org.springframework.cloud</groupId>
+         <artifactId>spring-cloud-starter-zuul</artifactId>
+</dependency>  
+<dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-security</artifactId>
+</dependency>
+<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-jwt</artifactId>
+			<version>1.0.7.RELEASE</version>
+</dependency>
+<dependency>
+			<groupId>org.springframework.security.oauth</groupId>
+			<artifactId>spring-security-oauth2</artifactId>
+			<version>2.1.0.RELEASE</version>
+</dependency>
+<dependency>
+         <groupId>io.jsonwebtoken</groupId>
+         <artifactId>jjwt</artifactId>
+         <version>0.6.0</version>
+</dependency>  
+
+application.yml
+---------------
+eureka:
+  client:
+    registerWithEureka: false
+    fetchRegistry: true
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+
+zuul: 
+ ignoredServices: '*'
+  routes:
+   user:
+     path: /user/**
+     serviceId: userservice    
+     stripPrefix: true
+     sensitiveHeaders: Cookie,Set-Cookie
+     
+   auth:
+     path: /auth/**
+     serviceId: authservice    
+     sensitiveHeaders: Cookie,Set-Cookie
+     stripPrefix: true
+
+JWT Workflow via API Gateway
+-------------------------------
+1)User sign-up with API Gateway by provding the username,password and email through the POST URI /auth/user/signup.
+
+2)User sign-in an Access token from API Gateway through the POST URI /auth/oauth/token by sending username and password.
+
+3)API Gateway verifies the credentials and successfull authentication generates  JWT access token containing user details and permissions.This token is sent as a response to the client.
+
+URL - http://localhost:8080/auth/oauth/token
+{    
+    "username": "admin",
+    "password": "password"
+}
+
+JWT access token returned by API Gateway
+eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsInNjb3BlcyI6W3siYXV0aG9yaXR5IjoiUk9MRV9VU0VSIn0seyJhdXRob3JpdHkiOiJST0xFX0FETUlOIn1dLCJpc3MiOiJo
+
+
+4)User send the Access token in Authorization header in each REST API request to the API Gateway.
+URL: http://localhost:8080/user/users
+Authorization Header: Bearer <token>
+
